@@ -1,32 +1,88 @@
 import os
+import platform
 import subprocess
 import json
 
 def get_storage_info():
+    system = platform.system()
+
+    if system == "Linux":
+        return get_linux_storage_info()
+    elif system == "Windows":
+        return get_windows_storage_info()
+    elif system == "Darwin":  # macOS is identified as "Darwin"
+        return get_macos_storage_info()
+    else:
+        print("Unsupported OS")
+        return []
+
+def get_linux_storage_info():
     try:
-        # Run lsblk command to get storage device details in JSON format
-        result = subprocess.run(["lsblk", "-J", "-o", "NAME,SIZE,MOUNTPOINT"], capture_output=True, text=True, check=True)
-        data = json.loads(result.stdout)
+        # Use 'df -h /mnt' to get the real macOS storage
+        result = subprocess.run(["df", "-h", "/mnt"], capture_output=True, text=True, check=True)
+        lines = result.stdout.strip().split("\n")[1:]  # Skip header line
         
         devices = []
-        for device in data.get("blockdevices", []):
-            name = device.get("name", "Unknown")
-            size = device.get("size", "Unknown")
-            mountpoint = device.get("mountpoint", "Not Mounted")
+        for line in lines:
+            parts = line.split()
+            if len(parts) < 6:
+                continue  # Skip malformed lines
             
-            if mountpoint == "Not Mounted":
-                free_space = "N/A"
-            else:
-                try:
-                    statvfs = os.statvfs(mountpoint)
-                    free_space = f"{(statvfs.f_bavail * statvfs.f_frsize) / (1024 ** 3):.2f} GB"
-                except Exception:
-                    free_space = "Error fetching"
+            filesystem, size, used, available, percent, mountpoint = parts
             
             devices.append({
-                "Path": f"/dev/{name}",
+                "Path": filesystem,
                 "Total Capacity": size,
-                "Unused Capacity": free_space
+                "Unused Capacity": available
+            })
+        
+        return devices
+    except Exception as e:
+        print(f"Error: {e}")
+        return []
+
+def get_windows_storage_info():
+    try:
+        result = subprocess.run(["wmic", "logicaldisk", "get", "DeviceID,Size,FreeSpace"], capture_output=True, text=True, check=True)
+        lines = result.stdout.strip().split("\n")[1:]  # Skip header
+        
+        devices = []
+        for line in lines:
+            parts = line.split()
+            if len(parts) < 2:
+                continue  # Skip malformed lines
+            
+            drive = parts[0]
+            total_size = int(parts[1]) / (1024 ** 3) if len(parts) > 1 else "Unknown"
+            free_space = int(parts[2]) / (1024 ** 3) if len(parts) > 2 else "Unknown"
+            
+            devices.append({
+                "Path": drive,
+                "Total Capacity": f"{total_size:.2f} GB",
+                "Unused Capacity": f"{free_space:.2f} GB"
+            })
+        
+        return devices
+    except Exception as e:
+        print(f"Error: {e}")
+        return []
+
+def get_macos_storage_info():
+    try:
+        result = subprocess.run(["df", "-h"], capture_output=True, text=True, check=True)
+        lines = result.stdout.strip().split("\n")[1:]  # Skip header line
+        
+        devices = []
+        for line in lines:
+            parts = line.split()
+            if len(parts) < 6:
+                continue  # Skip malformed lines
+            
+            filesystem, size, used, available, percent, mountpoint = parts
+            devices.append({
+                "Path": filesystem,
+                "Total Capacity": size,
+                "Unused Capacity": available
             })
         
         return devices
